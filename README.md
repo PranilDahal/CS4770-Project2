@@ -2,6 +2,12 @@
 
 In order to run:
 
+STEP 1: javac dvapp.java
+
+STEP 2: java dvapp
+
+STEP 3: help
+
 You must have java setup on your computer
 
 You must put the correct ip addresses on the topology files
