@@ -8,7 +8,7 @@ You must put the correct ip addresses on the topology files
 
 Demo will be done in class on 4 different terminals. Open 4 terminals and run the "server -t topologyfilename -i timeinterval" command on all of them at the same time (within 5 seconds)
 
-WORK DONE: (we all worked together, specifically on the following)
+## WORK DONE: (we all worked together, specifically on the following)
 
 Wilson - Worked on Node classes and comparator
 
