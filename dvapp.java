@@ -8,8 +8,9 @@ public class dvapp extends Thread{
 	static int port;
 	static int time;
 	String ip;
+	static int packets = 0;
 	public static Node myNode = null;
-	ArrayList<ConnectionThread> active;
+	static ArrayList<ConnectionThread> active;
 	static int yourID = 0;
 	static Map<Node, Integer> myRoutingTable = new HashMap<Node, Integer>();
 	static Set<Node> neighbors = new HashSet<Node>();
@@ -99,7 +100,7 @@ public class dvapp extends Thread{
 
 	}
 
-	void removeTerminatedDataConnections() {
+	static void removeTerminatedDataConnections() {
 
 		ConnectionThread[] c = active.toArray(new ConnectionThread[active.size()]);
 
@@ -123,7 +124,8 @@ public class dvapp extends Thread{
 		System.out.println("4. display");
 		System.out.println("5. disable <server-id>");
 		System.out.println("6. crash");
-		System.out.println("7. help");
+		System.out.println("7. packets");
+		System.out.println("8. help");
 
 	}
 
@@ -135,7 +137,7 @@ public class dvapp extends Thread{
 		try {
 
 			while(true) {
-
+								
 				try {
 					Thread.sleep(1000);
 				} catch (InterruptedException e1) {
@@ -147,9 +149,9 @@ public class dvapp extends Thread{
 				Scanner input = new Scanner(System.in);
 				String userCommand = input.nextLine();
 				String[] commands = userCommand.split(" ");
-
+				
 				switch(commands[0]) {
-
+				
 				// server -t <topology-file-name> -i <routing-update-interval>
 				case "server":
 					if(commands.length!=5){
@@ -218,16 +220,25 @@ public class dvapp extends Thread{
 
 						}
 					}
-
+					System.out.println("** SERVER COMMAND SUCESS **");
 					count ++;
 					break;
 
 				case "update":
+					removeTerminatedDataConnections();
 					update(Integer.parseInt(commands[1]),Integer.parseInt(commands[2]),Integer.parseInt(commands[3]));
+					System.out.println("** UPDATE COMMAND SUCESS **");
+					break;
+
+				case "packets":
+					removeTerminatedDataConnections();
+					System.out.println("** Received "+packets+" packets so far. **");
 					break;
 
 				case "step":
-					System.out.println("step");
+					if(neighbors.size() >0) {
+
+					}
 					break;
 
 				case "display":
@@ -235,11 +246,32 @@ public class dvapp extends Thread{
 					break;
 
 				case "disable":
-
+					for(ConnectionThread conn : active) {
+						if(conn.getIp() == getNodeFromId(Integer.parseInt(commands[1])).getIpAddress() && conn.getPort() == getNodeFromId(Integer.parseInt(commands[1])).getPort()) {
+							try {
+								conn.sendMessage(yourID+" DISABLE");
+								disableLink(getNodeFromId(Integer.parseInt(commands[1])));
+								conn.terminate();
+								removeTerminatedDataConnections();
+								System.out.println("** Closed connection to "+conn.getIp()+" "+conn.getPort()+" **");
+							} catch (NullPointerException e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+							}
+						}
+					}
+					System.out.println("DISABLE SUCCESS");
 					break;
 
 				case "crash":
-					System.out.println("Couldn't finish it");
+					removeTerminatedDataConnections();
+					for(ConnectionThread conn : active) {
+						conn.sendMessage(yourID+" DISABLE");
+						conn.terminate();
+						System.out.println("** Closed connection to "+conn.getIp()+" "+conn.getPort()+" **");
+					}
+					System.out.println("** CRASH SUCCESS. You will now exit. **");
+					System.exit(0);
 					break;
 
 				case "help":
@@ -258,6 +290,14 @@ public class dvapp extends Thread{
 		catch(IOException e) {
 			e.printStackTrace();
 		}
+	}
+
+	private static void disableLink(Node nodeFromId) {
+		if(neighbors.contains(nodeFromId)) {
+			neighbors.remove(nodeFromId);
+			myRoutingTable.put(nodeFromId, Integer.MAX_VALUE);
+		}
+
 	}
 
 	private static void display() {
@@ -281,13 +321,34 @@ public class dvapp extends Thread{
 
 		if(ser1 == yourID) {
 			Node to = getNodeFromId(ser2);
+			if(neighbors.contains(to)) {
+				myRoutingTable.put(to, cost);
+				String message = Integer.toString(yourID)+" UPDATE "+Integer.toString(ser1)+" "+Integer.toString(ser2)+" "+Integer.toString(cost);
+				String ip = to.getIpAddress();
+				int port = to.getPort();
+
+				for(ConnectionThread conn : active) {
+					if(conn.getIp() == ip && conn.getPort() == port) {
+						try {
+							conn.sendMessage(message);
+						} catch (NullPointerException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						} catch (SocketException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						} catch (IOException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+					}
+				}
+			}
+			else {
+				System.out.println("** Can't update to a server that's not a neighbor. **");
+			}
 
 		}
-
-	}
-
-	private static void establishConnections() {
-
 
 	}
 
@@ -307,19 +368,42 @@ public class dvapp extends Thread{
 				removeTerminatedDataConnections();
 
 				DataInputStream incoming = new DataInputStream(socket.getInputStream());
-				String msg;
-
+				String msg = "";
 				while( (msg = incoming.readUTF()) != null) {
 					System.out.println("\nRECEIVED A MESSAGE FROM SERVER AT "+
 							socket.getRemoteSocketAddress().toString().substring(1, socket.getRemoteSocketAddress().toString().indexOf(":")) + " " + msg + "\n->>");
+					packets++;
+
+					String[] split = msg.toString().split(" ");
+					if(split[1].contains("UPDATE")) {
+						String from = split[0];
+						String s1 = split[2];
+						String s2 = split [3];
+						String cost = split[4];
+						Node fromNode = dvapp.getNodeFromId(Integer.parseInt(from));
+						if(myRoutingTable.get(fromNode) != Integer.parseInt(cost)) {
+							myRoutingTable.put(fromNode, Integer.parseInt(cost));
+						}
+					}
+
+					if(split[1].contains("DISABLE")) {
+						String from = split[0];
+						Node fromNode = getNodeFromId(Integer.parseInt(from));
+						if(neighbors.contains(fromNode)) {
+							myRoutingTable.put(fromNode, Integer.MAX_VALUE);
+							neighbors.remove(fromNode);
+						}
+
+						System.out.println("DISABLE SUCCESS for Server "+split[0]);
+					}
 				}
 
 				client.start();
 			}
 			catch ( IOException e) {
 				System.out.println("** IP: "+ 
-						socket.getRemoteSocketAddress().toString().substring(1, socket.getRemoteSocketAddress().toString().indexOf(":")) +
-						" has left the network. **\n->>");
+						socket.getRemoteSocketAddress().toString().substring(1, socket.getRemoteSocketAddress().toString().indexOf(":")) 
+						+" "+socket.getPort()+" has left the network. **\n->>");
 			}
 			finally {
 				client.terminate();
@@ -441,11 +525,24 @@ class ConnectionThread extends Thread{
 
 			DataInputStream incoming = new DataInputStream(socket.getInputStream());
 			String msg;
-
+			dvapp.removeTerminatedDataConnections();
 			while( (msg = incoming.readUTF()) != null) {
 				System.out.print("\nReceived message from IP: "+ 
 						socket.getRemoteSocketAddress().toString().substring(1, socket.getRemoteSocketAddress().toString().indexOf(":")) +
 						"\nSender's port number: "+ socket.getPort() + "\nMessage: " + msg + "\n->>");
+				dvapp.packets++;
+
+				String[] split = msg.split(" ");
+				if(split[1].contains("DISABLE")) {
+					String from = split[0];
+					Node fromNode = dvapp.getNodeFromId(Integer.parseInt(from));
+					if(dvapp.neighbors.contains(fromNode)) {
+						dvapp.myRoutingTable.put(fromNode, Integer.MAX_VALUE);
+						dvapp.neighbors.remove(fromNode);
+					}
+
+					System.out.println("DISABLE SUCCESS for Server "+split[0]);
+				}
 			}
 		}
 
@@ -501,6 +598,12 @@ class ConnectionThread extends Thread{
 
 	public void setSocket(Socket socket) {
 		this.socket = socket;
+	}
+
+	public void sendMessage(String message) throws IOException, NullPointerException, SocketException{
+		DataOutputStream outgoing = new DataOutputStream(socket.getOutputStream());
+		outgoing.writeUTF(message);
+		outgoing.flush();
 	}
 
 }
